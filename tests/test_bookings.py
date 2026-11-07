@@ -253,15 +253,11 @@ def test_first_login_sets_password_then_it_is_required(make_client):
     assert bob.get("/api/me").json() == {"user": "Bob", "admin": False}
 
 
-def test_admin_reset_password_logs_user_out(make_client):
-    bob = make_client("Bob", "bobpass")
+def test_admins_cannot_reset_passwords(make_client):
+    make_client("Bob", "bobpass")
     alice = make_client("Alice")
-    assert bob.post("/api/admin/users/Bob/reset-password").status_code == 403
-    assert alice.post("/api/admin/users/Bob/reset-password").status_code == 200
-
-    assert bob.get("/api/me").json()["user"] is None
-    # Bob picks a new password on his next login.
-    assert make_client("Bob", "newpass").get("/api/me").json()["user"] == "Bob"
+    assert alice.post("/api/admin/users/Bob/reset-password").status_code in (404, 405)
+    assert make_client().post("/api/login", json={"name": "Bob", "password": "bobpass"}).status_code == 200
 
 
 def test_wrong_passwords_lock_the_name(make_client):

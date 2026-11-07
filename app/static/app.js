@@ -842,8 +842,6 @@ function renderAdmin() {
         el("div", { class: "sub" }, `${u.unix} · ${u.has_password ? "password set" : "hasn't logged in yet"}`)),
       !me && el("span", { class: "row-actions" },
         adminBtn,
-        u.has_password && confirmButton("Reset password",
-          () => act(() => userApi(u, "reset-password"), `${u.name} can choose a new password at their next login`)),
         confirmButton("Delete", () => act(() => userApi(u, "delete"), `${u.name} deleted`))));
   }));
 }

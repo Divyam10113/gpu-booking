@@ -506,14 +506,6 @@ def create_app(cfg: Config | None = None, clock=None, poll: bool = True) -> Fast
             for b in db.pending(conn)
         ]
 
-    @app.post("/api/admin/users/{name}/reset-password")
-    def admin_reset_password(name: str, conn: Conn, _admin: User = Depends(admin_user)):
-        """Clear a forgotten password. That person chooses a new one at their next login."""
-        if db.get_user(conn, name) is None:
-            raise HTTPException(404, "Unknown user")
-        db.clear_password(conn, name)
-        return {"ok": True}
-
     @app.post("/api/admin/users/{name}/approve")
     def admin_approve_user(name: str, conn: Conn, tasks: BackgroundTasks, admin: User = Depends(admin_user)):
         if not db.approve_user(conn, name):

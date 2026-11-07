@@ -281,8 +281,6 @@ def change_password_hash(conn, user: str, hashed: str) -> None:
     conn.execute("UPDATE passwords SET hash = ? WHERE user = ?", (hashed, user))
 
 
-def clear_password(conn, user: str) -> None:
-    conn.execute("DELETE FROM passwords WHERE user = ?", (user,))
 
 
 # ---------------------------------------------------------------- queries

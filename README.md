@@ -30,7 +30,9 @@ All of these values can be changed in `config.toml`.
 
 New people click **Sign up** on the login page. They enter their name, their account on the server (what `whoami` prints there), and a password. The sign-up then waits for an admin, and Zulip gets a message. Admins see it at the top of the admin panel under **Sign-ups waiting** and click **Approve**, or **Delete** for anyone they don't recognise. Only real accounts on the server are accepted, and at most 10 sign-ups an hour.
 
-Under **People**, admins can make someone an admin or remove that, reset a forgotten password (that person chooses a new one at their next login), or delete someone. Deleting ends their current booking and cancels their future ones; past bookings stay in the history. Admins can't delete themselves or change their own admin rights.
+Everyone can change their own password with **Change password** at the top. Nobody else can, admins included. Under **People**, admins can make someone an admin or remove that, or delete someone. Deleting ends their current booking and cancels their future ones; past bookings stay in the history. Admins can't delete themselves or change their own admin rights.
+
+If someone forgets their password, an admin deletes them and they sign up again with the same name. Their past bookings are kept under that name.
 
 Ten wrong passwords for a name in 15 minutes lock it for 15 minutes.
 

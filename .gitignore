@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.db
+*.db-wal
+*.db-shm
+config.toml
+*.pid
+*.log
+gpu-booking.env
+bin/
+backups/
+.claude/settings.local.json
+.DS_Store

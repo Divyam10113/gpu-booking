@@ -1,0 +1,48 @@
+# Copy to config.toml and edit. The app reads the file named by GPU_BOOKING_CONFIG
+# (default: ./config.toml).
+
+# Number of GPUs on the machine (indexes 0..num_gpus-1).
+num_gpus = 2
+
+# Booking rules.
+slot_minutes = 30            # start/end snap to this grid
+max_hours_single = 24        # longest request for one GPU
+max_hours_all = 12           # longest request for all GPUs at once
+require_approval = false     # false: bookings that don't clash go through at once; true: an admin approves each one
+
+idle_release_minutes = 60    # end a running booking when the booker has run nothing on it this long; 0 = never
+
+# Optional: post booking news to Zulip through a bot (see README). Leave zulip_site empty to skip.
+zulip_site = ""              # e.g. "https://yourorg.zulipchat.com"
+zulip_bot_email = ""
+zulip_bot_key = ""
+zulip_stream = ""
+zulip_topic = "GPU bookings"
+
+# Optional: Slack/Discord-compatible incoming webhook. Leave empty to disable.
+notify_webhook_url = ""
+
+# Secret used to sign login cookies. Required: the app won't start with the placeholder.
+# Set a long random string, e.g.
+#   python -c "import secrets; print(secrets.token_hex(32))"
+# (the GPU_BOOKING_SECRET env var overrides this).
+secret_key = "change-me"
+
+# Starting list of people, read only the first time the app runs (when its
+# database has nobody yet). After that, people sign up on the site and an admin
+# approves them; admins add, remove and promote people under Admin -> People,
+# and edits here are ignored. List at least one admin (`admin = true`).
+# `unix` is their login name on the server, which owns their GPU processes.
+# Each person chooses their own password the first time they log in.
+[[users]]
+name = "Alice"
+unix = "alice"
+admin = true
+
+[[users]]
+name = "Bob"
+unix = "bob"
+
+[[users]]
+name = "Carol"
+unix = "carol"

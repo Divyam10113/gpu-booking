@@ -1,0 +1,20 @@
+# systemd unit for the GPU booking app.
+# Install:  sudo cp deploy/gpu-booking.service /etc/systemd/system/
+#           sudo systemctl daemon-reload && sudo systemctl enable --now gpu-booking
+# Adjust User and paths below to where you put the app.
+
+[Unit]
+Description=GPU booking web app
+After=network.target
+
+[Service]
+Type=simple
+User=gpubooking
+WorkingDirectory=/opt/gpu-booking
+Environment=GPU_BOOKING_CONFIG=/opt/gpu-booking/config.toml
+Environment=GPU_BOOKING_DB=/opt/gpu-booking/gpu_booking.db
+ExecStart=/opt/gpu-booking/.venv/bin/uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8080
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

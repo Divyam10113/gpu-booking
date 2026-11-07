@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GPU Booking</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+<script>
+  // Apply the saved theme before first paint so the page doesn't flash.
+  try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <h1>GPU Booking</h1>
+  </div>
+  <div class="topbar-right">
+    <div class="who" id="who" hidden>
+      <button class="admin-pill" id="admin-pill" hidden title="Pending requests">
+        <span>Requests</span><b id="pending-count">0</b>
+      </button>
+      <span class="who-name" id="who-name"></span>
+      <button class="btn small ghost" id="change-pw" type="button">Change password</button>
+      <button class="btn small" id="logout">Log out</button>
+    </div>
+    <button class="btn small icon-btn" id="theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">
+      <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="currentColor"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></g></svg>
+    </button>
+  </div>
+</header>
+
+<main id="app" hidden>
+  <section class="now" aria-label="GPUs right now">
+    <div class="section-head">
+      <h2>Right now</h2>
+      <span class="muted" id="poll-age"></span>
+    </div>
+    <div class="now-grid" id="now-grid"></div>
+    <p class="banner warn" id="smi-error" hidden></p>
+  </section>
+
+  <div class="layout">
+    <section class="calendar-wrap" aria-label="Schedule">
+      <div class="section-head">
+        <h2 id="week-label">This week</h2>
+        <div class="cal-nav">
+          <button class="btn ghost small" id="prev-week" aria-label="Previous week">←</button>
+          <button class="btn ghost small" id="this-week">Today</button>
+          <button class="btn ghost small" id="next-week" aria-label="Next week">→</button>
+          <button class="btn primary small" id="new-request">New booking</button>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i class="sw approved"></i>Approved</span>
+        <span><i class="sw pending"></i>Waiting for approval</span>
+        <span>Each person has their own color.</span>
+        <span>Drag along a GPU row to book time.</span>
+      </div>
+      <div class="calendar" id="calendar"></div>
+    </section>
+
+    <aside class="side">
+      <section class="panel" id="admin-panel" hidden>
+        <div class="section-head">
+          <h2 id="admin-title">Requests to review</h2>
+        </div>
+        <div id="pending-list" class="stack"></div>
+        <div id="waiting-wrap" hidden>
+          <h3 class="minor-head">Sign-ups waiting</h3>
+          <p class="hint">Approve people you know. Delete anyone you don't recognise.</p>
+          <div id="waiting-list"></div>
+        </div>
+        <details class="subsection" open>
+          <summary id="hours-title">Booked vs used this week</summary>
+          <p class="hint">GPU-hours: one GPU for an hour is 1, both for an hour is 2. "Used" counts only while their jobs keep the GPU busy.</p>
+          <div id="hours-list"></div>
+          <h3 class="minor-head">Used without a booking</h3>
+          <p class="hint">GPU time each server account took up (running or holding memory) on a GPU it hadn't booked.</p>
+          <div id="unbooked-list"></div>
+        </details>
+        <details class="subsection">
+          <summary>Activity</summary>
+          <p class="hint">Every booking change: who did it and when.</p>
+          <div id="activity-list"></div>
+        </details>
+        <details class="subsection">
+          <summary>People</summary>
+          <p class="hint">Resetting a password logs that person out; they choose a new one at their next login. Deleting someone ends their current booking and cancels their future ones.</p>
+          <div id="people-list"></div>
+        </details>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>Your bookings</h2>
+        </div>
+        <div id="my-list" class="stack"></div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<!-- Login -->
+<div class="overlay solid" id="login" hidden>
+  <form class="dialog" id="login-form">
+    <h2>Log in to GPU Booking</h2>
+    <label class="field">
+      <span>Your name</span>
+      <select id="login-name" required></select>
+    </label>
+    <p class="hint" id="login-first-time" hidden>First time logging in. Choose a password; you'll use it from now on.</p>
+    <label class="field">
+      <span id="login-password-label">Password</span>
+      <input type="password" id="login-password" autocomplete="current-password" required>
+    </label>
+    <label class="field" id="login-confirm-row" hidden>
+      <span>Type it again</span>
+      <input type="password" id="login-confirm" autocomplete="new-password">
+    </label>
+    <p class="form-error" id="login-error" hidden></p>
+    <div class="actions">
+      <button class="btn primary" type="submit">Continue</button>
+    </div>
+    <p class="switch-line">Not in the list? <button class="link" type="button" id="to-signup">Sign up</button></p>
+  </form>
+
+  <form class="dialog" id="signup-form" hidden>
+    <h2>Sign up</h2>
+    <label class="field">
+      <span>Your name</span>
+      <input type="text" id="su-name" maxlength="40" autocomplete="name" required>
+    </label>
+    <label class="field">
+      <span>Your account on the GPU server</span>
+      <input type="text" id="su-unix" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. jsmith" required>
+    </label>
+    <p class="hint">The name you log in to the server with. Run <code>whoami</code> there to check. It's how the app knows which GPU jobs are yours. Several people can share one account.</p>
+    <label class="field">
+      <span>Choose a password</span>
+      <input type="password" id="su-password" autocomplete="new-password" required>
+    </label>
+    <label class="field">
+      <span>Type it again</span>
+      <input type="password" id="su-confirm" autocomplete="new-password" required>
+    </label>
+    <p class="form-error" id="su-error" hidden></p>
+    <div class="actions">
+      <button class="btn primary" type="submit">Sign up</button>
+    </div>
+    <p class="switch-line">Already have an account? <button class="link" type="button" id="to-login">Log in</button></p>
+  </form>
+
+  <div class="dialog" id="signup-done" hidden>
+    <h2>Almost there</h2>
+    <p>Your account <b id="su-done-name"></b> is waiting for an admin to approve it. You can log in once they do; the admins have been told.</p>
+    <div class="actions">
+      <button class="btn primary" type="button" id="su-done-ok">Back to log in</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change password -->
+<div class="overlay" id="password-dialog" hidden>
+  <form class="dialog" id="password-form">
+    <h2>Change password</h2>
+    <label class="field">
+      <span>Current password</span>
+      <input type="password" id="pw-current" autocomplete="current-password" required>
+    </label>
+    <label class="field">
+      <span>New password</span>
+      <input type="password" id="pw-new" autocomplete="new-password" required>
+    </label>
+    <label class="field">
+      <span>Type it again</span>
+      <input type="password" id="pw-confirm" autocomplete="new-password" required>
+    </label>
+    <p class="hint">Other browsers logged in as you will be logged out.</p>
+    <p class="form-error" id="pw-error" hidden></p>
+    <div class="actions">
+      <button class="btn ghost" type="button" data-close>Cancel</button>
+      <button class="btn primary" type="submit">Change password</button>
+    </div>
+  </form>
+</div>
+
+<!-- New / edit booking -->
+<div class="overlay" id="booking-dialog" hidden>
+  <form class="dialog" id="booking-form" autocomplete="off">
+    <h2 id="booking-title">Book GPU time</h2>
+    <fieldset class="field">
+      <legend>GPUs</legend>
+      <div class="gpu-picks" id="gpu-picks"></div>
+    </fieldset>
+    <div class="row2">
+      <label class="field">
+        <span>From</span>
+        <input type="datetime-local" id="f-start" required>
+      </label>
+      <label class="field">
+        <span>Until</span>
+        <input type="datetime-local" id="f-end" required>
+      </label>
+    </div>
+    <p class="hint" id="f-duration"></p>
+    <label class="field" id="f-user-row" hidden>
+      <span>Book for</span>
+      <select id="f-user"></select>
+    </label>
+    <label class="field">
+      <span>What's it for?</span>
+      <textarea id="f-note" rows="2" placeholder="e.g. 70B fine-tune, needs both cards"></textarea>
+    </label>
+    <p class="form-error" id="booking-error" hidden></p>
+    <div class="actions">
+      <button class="btn ghost" type="button" data-close>Cancel</button>
+      <button class="btn primary" type="submit" id="booking-submit">Book</button>
+    </div>
+  </form>
+</div>
+
+<!-- Booking details -->
+<div class="overlay" id="detail-dialog" hidden>
+  <div class="dialog" id="detail-body"></div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

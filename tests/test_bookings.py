@@ -253,6 +253,28 @@ def test_first_login_sets_password_then_it_is_required(make_client):
     assert bob.get("/api/me").json() == {"user": "Bob", "admin": False}
 
 
+def test_forgot_password_needs_admin_approval(make_client):
+    bob = make_client("Bob", "oldpass")
+    anon = make_client()
+    assert anon.post("/api/forgot-password", json={"name": "Nobody", "password": "newpass"}).status_code == 400
+    assert anon.post("/api/forgot-password", json={"name": "Bob", "password": "ab"}).status_code == 400
+    assert anon.post("/api/forgot-password", json={"name": "Bob", "password": "newpass"}).status_code == 200
+    login = lambda pw: make_client().post("/api/login", json={"name": "Bob", "password": pw}).status_code
+    assert login("oldpass") == 200 and login("newpass") == 403   # nothing changes until approved
+
+    alice = make_client("Alice")
+    assert [r["name"] for r in alice.get(f"/api/state?start={T}&end={T + H}").json()["password_requests"]] == ["Bob"]
+    assert make_client("Carol").post("/api/admin/users/Bob/password-request/approve").status_code == 403
+    assert alice.post("/api/admin/users/Bob/password-request/approve").status_code == 200
+    assert login("newpass") == 200 and login("oldpass") == 403
+    assert bob.get("/api/me").json()["user"] is None              # logged out everywhere
+    assert alice.post("/api/admin/users/Bob/password-request/approve").status_code == 404
+
+    anon.post("/api/forgot-password", json={"name": "Bob", "password": "sneaky"})
+    assert alice.post("/api/admin/users/Bob/password-request/delete").status_code == 200  # turned down
+    assert login("sneaky") == 403 and login("newpass") == 200
+
+
 def test_admins_cannot_reset_passwords(make_client):
     make_client("Bob", "bobpass")
     alice = make_client("Alice")
@@ -281,7 +303,7 @@ def test_state_bundles_everything(make_client):
     s = bob.get(f"/api/state?start={T}&end={T + H}").json()
     assert set(s) == {"status", "bookings", "mine"} and len(s["bookings"]) == len(s["mine"]) == 1
     a = alice.get(f"/api/state?start={T}&end={T + H}").json()
-    assert set(a) == {"status", "bookings", "mine", "pending", "activity", "usage", "users", "waiting"} and len(a["pending"]) == 1
+    assert set(a) == {"status", "bookings", "mine", "pending", "activity", "usage", "users", "waiting", "password_requests"} and len(a["pending"]) == 1
 
 
 def test_shared_server_account(cfg, make_client):
@@ -458,8 +480,9 @@ def test_zulip_alert_for_job_on_someone_elses_booking(make_client, cfg, monkeypa
 
 def test_sign_up_needs_admin_approval(make_client, monkeypatch):
     import app.main as main
-    monkeypatch.setattr(main, "account_exists", lambda unix: unix == "erin")
+    monkeypatch.setattr(main, "server_accounts", lambda: {"erin", "bob"})
     anon = make_client()
+    assert anon.get("/api/accounts").json() == ["alice", "bob", "carol", "erin"]
     reg = lambda **kw: anon.post("/api/register", json={"name": "Erin", "unix": "erin", "password": "pw1234", **kw})
     assert reg(unix="nobody").status_code == 400          # no such server account
     assert reg(name="bob").status_code == 409             # taken (any capitalisation)

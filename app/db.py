@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS users (
     approved    INTEGER NOT NULL DEFAULT 1,  -- 0: signed up, waiting for an admin
     created_at  INTEGER NOT NULL
 );
+-- "Forgot password": the new password someone chose, applied once an admin approves.
+CREATE TABLE IF NOT EXISTS password_requests (
+    user        TEXT PRIMARY KEY,
+    hash        TEXT    NOT NULL,
+    at          INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS passwords (
     user        TEXT PRIMARY KEY,
     hash        TEXT NOT NULL
@@ -255,6 +261,7 @@ def delete_user(conn, name: str, actor: str, now: int) -> None:
                 conn.execute("UPDATE bookings SET status = 'cancelled' WHERE id = ?", (b.id,))
                 log(conn, b.id, actor, "cancelled", "Their account was deleted", now)
         conn.execute("DELETE FROM passwords WHERE user = ?", (name,))
+        conn.execute("DELETE FROM password_requests WHERE user = ?", (name,))
         conn.execute("DELETE FROM users WHERE name = ? COLLATE BINARY", (name,))
 
 
@@ -275,6 +282,30 @@ def set_password_hash(conn, user: str, hashed: str) -> None:
         conn.execute("INSERT INTO passwords (user, hash) VALUES (?, ?)", (user, hashed))
     except sqlite3.IntegrityError:
         raise BookingError("A password was already set for this name", 409)
+
+
+def request_password(conn, user: str, hashed: str, at: int) -> None:
+    """Someone forgot their password and chose a new one. A newer request replaces an older one."""
+    conn.execute("INSERT OR REPLACE INTO password_requests (user, hash, at) VALUES (?, ?, ?)", (user, hashed, at))
+
+
+def password_requests(conn) -> list[dict]:
+    return [{"name": r["user"], "at": r["at"]} for r in conn.execute("SELECT user, at FROM password_requests ORDER BY at")]
+
+
+def approve_password_request(conn, user: str) -> bool:
+    """Make the requested password the real one. Logs that person out everywhere."""
+    with tx(conn):
+        r = conn.execute("SELECT hash FROM password_requests WHERE user = ?", (user,)).fetchone()
+        if r is None:
+            return False
+        conn.execute("INSERT OR REPLACE INTO passwords (user, hash) VALUES (?, ?)", (user, r["hash"]))
+        conn.execute("DELETE FROM password_requests WHERE user = ?", (user,))
+    return True
+
+
+def drop_password_request(conn, user: str) -> bool:
+    return conn.execute("DELETE FROM password_requests WHERE user = ?", (user,)).rowcount == 1
 
 
 def change_password_hash(conn, user: str, hashed: str) -> None:

@@ -25,6 +25,7 @@ const state = {
   activity: [],
   usage: { people: [], unbooked: [] },
   waiting: [],
+  passwordRequests: [],
 };
 
 // Through ngrok every request counts against a monthly cap, so refresh less often there.
@@ -142,16 +143,47 @@ function showLogin() {
 
 /** The login overlay shows one of: log in, sign up, or "waiting for approval". */
 function showLoginStep(id) {
-  for (const x of ["#login-form", "#signup-form", "#signup-done"]) $(x).hidden = x !== id;
+  for (const x of ["#login-form", "#signup-form", "#forgot-form", "#signup-done"]) $(x).hidden = x !== id;
+}
+function showDone(text) {
+  $("#done-text").textContent = text;
+  showLoginStep("#signup-done");
 }
 
-$("#to-signup").addEventListener("click", () => {
-  for (const id of ["#su-name", "#su-unix", "#su-password", "#su-confirm"]) $(id).value = "";
+$("#to-signup").addEventListener("click", async () => {
+  for (const id of ["#su-name", "#su-password", "#su-confirm"]) $(id).value = "";
   $("#su-error").hidden = true;
+  const accounts = await api("GET", "/api/accounts").catch(() => []);
+  $("#su-unix").replaceChildren(el("option", { value: "" }, "Choose your account"),
+    ...accounts.map((a) => el("option", { value: a }, a)));
   showLoginStep("#signup-form");
   $("#su-name").focus();
 });
-$("#to-login").addEventListener("click", () => { showLoginStep("#login-form"); $("#login-name").focus(); });
+$("#to-forgot").addEventListener("click", () => {
+  $("#fp-name").replaceChildren(el("option", { value: "" }, "Choose your name"),
+    ...state.cfg.users.map((u) => el("option", { value: u.name }, u.name)));
+  $("#fp-name").value = $("#login-name").value;
+  for (const id of ["#fp-password", "#fp-confirm"]) $(id).value = "";
+  $("#fp-error").hidden = true;
+  showLoginStep("#forgot-form");
+  ($("#fp-name").value ? $("#fp-password") : $("#fp-name")).focus();
+});
+for (const b of document.querySelectorAll("[data-to-login]")) {
+  b.addEventListener("click", () => { showLoginStep("#login-form"); $("#login-name").focus(); });
+}
+
+$("#forgot-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const showError = (msg) => { $("#fp-error").textContent = msg; $("#fp-error").hidden = false; };
+  if ($("#fp-password").value !== $("#fp-confirm").value) { showError("The two passwords don't match."); return; }
+  try {
+    await api("POST", "/api/forgot-password", { name: $("#fp-name").value, password: $("#fp-password").value });
+    for (const id of ["#fp-password", "#fp-confirm"]) $(id).value = "";
+    showDone("Your new password starts working once an admin approves it; they've been told. Until then your old one still works.");
+  } catch (err) {
+    showError(err.message);
+  }
+});
 $("#su-done-ok").addEventListener("click", () => showLogin());
 
 $("#signup-form").addEventListener("submit", async (e) => {
@@ -163,8 +195,7 @@ $("#signup-form").addEventListener("submit", async (e) => {
       name: $("#su-name").value, unix: $("#su-unix").value, password: $("#su-password").value,
     });
     for (const id of ["#su-password", "#su-confirm"]) $(id).value = "";
-    $("#su-done-name").textContent = r.name;
-    showLoginStep("#signup-done");
+    showDone(`Your account ${r.name} is waiting for an admin to approve it. You can log in once they do; the admins have been told.`);
   } catch (err) {
     showError(err.message);
   }
@@ -250,7 +281,8 @@ async function refreshAll() {
   } catch { return; /* polling stays quiet; actions show their own errors */ }
   Object.assign(state, { status: s.status, bookings: s.bookings, mine: s.mine });
   if (state.me.admin) {
-    Object.assign(state, { pending: s.pending, activity: s.activity, usage: s.usage, waiting: s.waiting });
+    Object.assign(state, { pending: s.pending, activity: s.activity, usage: s.usage, waiting: s.waiting,
+      passwordRequests: s.password_requests });
     state.cfg.users = s.users;
   }
   renderNow();
@@ -772,10 +804,11 @@ function renderMine() {
 
 function renderAdmin() {
   const n = state.pending.length;
-  $("#pending-count").textContent = n + state.waiting.length;
-  $("#admin-pill").classList.toggle("has", n + state.waiting.length > 0);
+  const asks = state.waiting.length + state.passwordRequests.length;
+  $("#pending-count").textContent = n + asks;
+  $("#admin-pill").classList.toggle("has", n + asks > 0);
   const reviewing = state.cfg.require_approval || n > 0;
-  $("#admin-pill").hidden = !reviewing && !state.waiting.length;
+  $("#admin-pill").hidden = !reviewing && !asks;
   $("#admin-title").textContent = reviewing ? "Requests to review" : "Admin";
   $("#pending-list").hidden = !reviewing;
 
@@ -826,6 +859,17 @@ function renderAdmin() {
       el("div", {}, el("b", {}, u.name), el("div", { class: "sub" }, `Server account ${u.unix} · signed up ${fmtWhen(u.at)}`)),
       el("span", { class: "row-actions" }, approve,
         confirmButton("Delete", () => act(() => userApi(u, "delete"), `${u.name}'s sign-up deleted`))));
+  }));
+
+  $("#pwreq-wrap").hidden = !state.passwordRequests.length;
+  $("#pwreq-list").replaceChildren(...state.passwordRequests.map((u) => {
+    const approve = el("button", { class: "btn primary small", type: "button" }, "Approve");
+    approve.addEventListener("click", () => act(() => userApi(u, "password-request/approve"),
+      `${u.name}'s new password works now`).catch(() => {}));
+    return el("div", { class: "row" },
+      el("div", {}, el("b", {}, u.name), el("div", { class: "sub" }, `asked ${fmtWhen(u.at)}`)),
+      el("span", { class: "row-actions" }, approve,
+        confirmButton("Delete", () => act(() => userApi(u, "password-request/delete"), "Request deleted"))));
   }));
 
   $("#people-list").replaceChildren(...state.cfg.users.map((u) => {

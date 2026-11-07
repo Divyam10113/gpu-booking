@@ -78,6 +78,11 @@
           <p class="hint">Approve people you know. Delete anyone you don't recognise.</p>
           <div id="waiting-list"></div>
         </div>
+        <div id="pwreq-wrap" hidden>
+          <h3 class="minor-head">Password requests</h3>
+          <p class="hint">They forgot their password and chose a new one. Check with them that it was really them before approving.</p>
+          <div id="pwreq-list"></div>
+        </div>
         <details class="subsection" open>
           <summary id="hours-title">Booked vs used this week</summary>
           <p class="hint">GPU-hours: one GPU for an hour is 1, both for an hour is 2. "Used" counts only while their jobs keep the GPU busy.</p>
@@ -93,7 +98,7 @@
         </details>
         <details class="subsection">
           <summary>People</summary>
-          <p class="hint">Only each person can change their own password. Deleting someone ends their current booking and cancels their future ones. Someone who forgot their password can be deleted and sign up again under the same name; their past bookings stay with that name.</p>
+          <p class="hint">Only each person can change their own password. Deleting someone ends their current booking and cancels their future ones. Someone who forgot theirs asks for a new one from the login page; it shows up above for approval.</p>
           <div id="people-list"></div>
         </details>
       </section>
@@ -129,7 +134,30 @@
     <div class="actions">
       <button class="btn primary" type="submit">Continue</button>
     </div>
-    <p class="switch-line">Not in the list? <button class="link" type="button" id="to-signup">Sign up</button></p>
+    <p class="switch-line">Not in the list? <button class="link" type="button" id="to-signup">Sign up</button>
+      · <button class="link" type="button" id="to-forgot">Forgot password?</button></p>
+  </form>
+
+  <form class="dialog" id="forgot-form" hidden>
+    <h2>Forgot your password?</h2>
+    <p class="hint">Choose a new one here. It starts working once an admin approves it. They never see it.</p>
+    <label class="field">
+      <span>Your name</span>
+      <select id="fp-name" required></select>
+    </label>
+    <label class="field">
+      <span>New password</span>
+      <input type="password" id="fp-password" autocomplete="new-password" required>
+    </label>
+    <label class="field">
+      <span>Type it again</span>
+      <input type="password" id="fp-confirm" autocomplete="new-password" required>
+    </label>
+    <p class="form-error" id="fp-error" hidden></p>
+    <div class="actions">
+      <button class="btn primary" type="submit">Ask an admin</button>
+    </div>
+    <p class="switch-line"><button class="link" type="button" data-to-login>Back to log in</button></p>
   </form>
 
   <form class="dialog" id="signup-form" hidden>
@@ -140,9 +168,9 @@
     </label>
     <label class="field">
       <span>Your account on the GPU server</span>
-      <input type="text" id="su-unix" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. jsmith" required>
+      <select id="su-unix" required></select>
     </label>
-    <p class="hint">The name you log in to the server with. Run <code>whoami</code> there to check. It's how the app knows which GPU jobs are yours. Several people can share one account.</p>
+    <p class="hint">The account you log in to the server with (<code>whoami</code> shows it). It's how the app knows which GPU jobs are yours. Several people can share one account.</p>
     <label class="field">
       <span>Choose a password</span>
       <input type="password" id="su-password" autocomplete="new-password" required>
@@ -155,12 +183,12 @@
     <div class="actions">
       <button class="btn primary" type="submit">Sign up</button>
     </div>
-    <p class="switch-line">Already have an account? <button class="link" type="button" id="to-login">Log in</button></p>
+    <p class="switch-line">Already have an account? <button class="link" type="button" data-to-login>Log in</button></p>
   </form>
 
   <div class="dialog" id="signup-done" hidden>
     <h2>Almost there</h2>
-    <p>Your account <b id="su-done-name"></b> is waiting for an admin to approve it. You can log in once they do; the admins have been told.</p>
+    <p id="done-text"></p>
     <div class="actions">
       <button class="btn primary" type="button" id="su-done-ok">Back to log in</button>
     </div>

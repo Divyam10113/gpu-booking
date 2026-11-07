@@ -48,16 +48,19 @@ class RegisterBody(BaseModel):
     password: str
 
 
+class ForgotBody(BaseModel):
+    name: str
+    password: str
+
+
 class AdminFlagBody(BaseModel):
     admin: bool
 
 
-def account_exists(unix: str) -> bool:
-    """A real login account on this server (not a system account)."""
-    try:
-        return pwd.getpwnam(unix).pw_uid >= 1000
-    except KeyError:
-        return False
+def server_accounts() -> set[str]:
+    """People's login accounts on this server (no system accounts), for the sign-up list."""
+    return {p.pw_name for p in pwd.getpwall()
+            if 1000 <= p.pw_uid < 65534 and not p.pw_shell.endswith(("nologin", "false"))}
 
 
 class PasswordBody(BaseModel):
@@ -109,6 +112,7 @@ def create_app(cfg: Config | None = None, clock=None, poll: bool = True) -> Fast
     alerted: set[tuple[int, str]] = set()  # one Zulip message per account per booking
     started_at = now()
     signups: list[float] = []
+    forgot_requests: list[float] = []
     seed = db.connect(cfg.db_path)
     db.seed_users(seed, cfg.users, started_at)
     seed.close()
@@ -300,6 +304,14 @@ def create_app(cfg: Config | None = None, clock=None, poll: bool = True) -> Fast
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
+    def accounts(conn) -> list[str]:
+        """Accounts people can sign up with: the server's, plus any already in use."""
+        return sorted(server_accounts() | {u.unix for u in db.all_users(conn)})
+
+    @app.get("/api/accounts")
+    def get_accounts(conn: Conn):
+        return accounts(conn)
+
     @app.get("/api/config")
     def get_config(conn: Conn):
         has_pw = db.users_with_password(conn)
@@ -354,9 +366,8 @@ def create_app(cfg: Config | None = None, clock=None, poll: bool = True) -> Fast
         unix = body.unix.strip()
         if not 2 <= len(name) <= 40 or not name.isprintable():
             raise HTTPException(400, "Use a name between 2 and 40 characters")
-        if not re.fullmatch(r"[a-z_][a-z0-9_.-]{0,31}", unix) or not (
-                account_exists(unix) or unix in {u.unix for u in db.all_users(conn)}):
-            raise HTTPException(400, f"There's no account “{unix}” on the server. Log in to the server and run whoami to see yours.")
+        if unix not in accounts(conn):
+            raise HTTPException(400, "Pick your server account from the list")
         if len(body.password) < MIN_PASSWORD:
             raise HTTPException(400, f"Choose a password with at least {MIN_PASSWORD} characters")
         t = time.time()
@@ -367,6 +378,24 @@ def create_app(cfg: Config | None = None, clock=None, poll: bool = True) -> Fast
         signups.append(t)
         notify(tasks, f"👋 New sign-up: {name} (server account {unix}). An admin needs to approve it under Admin → People.")
         return {"ok": True, "name": name}
+
+    @app.post("/api/forgot-password")
+    def forgot_password(body: ForgotBody, conn: Conn, tasks: BackgroundTasks):
+        """Ask for a new password, chosen by the person. It works once an admin approves it."""
+        user = db.get_user(conn, body.name)
+        if user is None:
+            raise HTTPException(400, "Unknown user")
+        if len(body.password) < MIN_PASSWORD:
+            raise HTTPException(400, f"Choose a password with at least {MIN_PASSWORD} characters")
+        t = time.time()
+        forgot_requests[:] = [s for s in forgot_requests if s > t - 3600]
+        if len(forgot_requests) >= MAX_SIGNUPS_PER_HOUR:
+            raise HTTPException(429, "Too many requests in the last hour. Try again later.")
+        db.request_password(conn, user.name, hash_password(body.password), now())
+        forgot_requests.append(t)
+        notify(tasks, f"🔑 {user.name} forgot their password and chose a new one. An admin needs to approve it "
+                      f"under Admin → Password requests. Check with {user.name} first that it was them.")
+        return {"ok": True}
 
     @app.post("/api/password")
     def change_password(body: PasswordBody, request: Request, conn: Conn, user: User = Depends(current_user)):
@@ -513,6 +542,20 @@ def create_app(cfg: Config | None = None, clock=None, poll: bool = True) -> Fast
         notify(tasks, f"✅ {name} can now log in (approved by {admin.name}).")
         return {"ok": True}
 
+    @app.post("/api/admin/users/{name}/password-request/approve")
+    def admin_approve_password(name: str, conn: Conn, tasks: BackgroundTasks, admin: User = Depends(admin_user)):
+        """Switch someone to the password they asked for. Admins never see or choose it."""
+        if not db.approve_password_request(conn, name):
+            raise HTTPException(404, "No password request from that person")
+        notify(tasks, f"🔑 {name}'s new password works now (approved by {admin.name}).")
+        return {"ok": True}
+
+    @app.post("/api/admin/users/{name}/password-request/delete")
+    def admin_drop_password(name: str, conn: Conn, _admin: User = Depends(admin_user)):
+        if not db.drop_password_request(conn, name):
+            raise HTTPException(404, "No password request from that person")
+        return {"ok": True}
+
     @app.post("/api/admin/users/{name}/delete")
     def admin_delete_user(name: str, conn: Conn, admin: User = Depends(admin_user)):
         """Remove someone (or turn down a sign-up). Their running and future bookings end."""
@@ -595,6 +638,7 @@ def create_app(cfg: Config | None = None, clock=None, poll: bool = True) -> Fast
             result["users"] = [{"name": u.name, "unix": u.unix, "admin": u.admin, "has_password": u.name in has_pw}
                                for u in db.all_users(conn)]
             result["waiting"] = db.waiting_users(conn)
+            result["password_requests"] = db.password_requests(conn)
         return result
 
     return app

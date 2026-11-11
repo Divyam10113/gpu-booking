@@ -555,3 +555,22 @@ def test_job_holding_memory_at_zero_load_counts_as_idle(make_client, cfg):
                 assert db.get(conn, b.id).end == T + 4 * H  # last busy at 0:10, so not yet an hour
         assert db.get(conn, b.id).end == T + 70 * 60
         conn.close()
+
+
+def test_gpu_polling_survives_errors(cfg, monkeypatch):
+    import app.main as main
+    monkeypatch.setattr(main, "POLL_SECONDS", 0.01)
+    calls = {"n": 0}
+
+    def flaky(num_gpus):
+        calls["n"] += 1
+        if calls["n"] in (2, 3):  # the first reading is at startup; then two failures in the loop
+            raise OSError("disk full")
+        return gpu.Snapshot(time.time(), [gpu.GpuInfo(0, "x", 0, 0, 1)])
+
+    monkeypatch.setattr(gpu, "snapshot", flaky)
+    with TestClient(create_app(cfg, poll=True)):
+        deadline = time.time() + 5
+        while calls["n"] < 6 and time.time() < deadline:
+            time.sleep(0.02)
+    assert calls["n"] >= 6  # still reading after the failures

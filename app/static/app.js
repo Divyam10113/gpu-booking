@@ -297,8 +297,11 @@ function renderNow() {
   const s = state.status;
   if (!s) return;
   const err = $("#smi-error");
-  err.hidden = !s.error;
-  err.textContent = s.error ? `Live usage unavailable: ${s.error}` : "";
+  // The server reads the GPUs every 10 s; a much older reading means something is wrong there.
+  const stale = !s.error && s.taken_at && s.now - s.taken_at > 120;
+  err.hidden = !s.error && !stale;
+  err.textContent = s.error ? `Live usage unavailable: ${s.error}`
+    : stale ? `Live usage stopped updating at ${fmtWhen(Math.floor(s.taken_at))}. Tell an admin; restarting the app fixes it.` : "";
   $("#poll-age").textContent = s.taken_at ? `Live usage, updated ${fmtClock(Math.floor(s.taken_at))}` : "";
 
   $("#now-grid").replaceChildren(...s.gpus.map((g) => {

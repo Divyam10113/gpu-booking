@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import logging
 import pwd
 import re
 import sqlite3
@@ -24,6 +25,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import db, gpu
 from .config import Config, User, check_password, hash_password, load_config
 
+log = logging.getLogger("gpu_booking")
 STATIC = Path(__file__).parent / "static"
 POLL_SECONDS = 10
 ACTIVE_UTIL = 5  # % GPU load at or above which the booker's job counts as working
@@ -126,10 +128,19 @@ def create_app(cfg: Config | None = None, clock=None, poll: bool = True) -> Fast
             task.cancel()
 
     async def _poll(app: FastAPI):
+        last_error = ("", 0.0)
         while True:
             await asyncio.sleep(POLL_SECONDS)
-            app.state.snapshot = await asyncio.to_thread(gpu.snapshot, cfg.num_gpus)
-            await asyncio.to_thread(tick)
+            try:
+                app.state.snapshot = await asyncio.to_thread(gpu.snapshot, cfg.num_gpus)
+                await asyncio.to_thread(tick)
+            except Exception as e:
+                # Keep going: one failed reading or database write (e.g. a full disk) must not
+                # freeze the live panel for good. Log each new error, repeats at most hourly.
+                msg = f"{type(e).__name__}: {e}"
+                if msg != last_error[0] or time.time() - last_error[1] > 3600:
+                    log.exception("GPU poll failed; will keep trying")
+                    last_error = (msg, time.time())
 
     app = FastAPI(title="GPU Booking", lifespan=lifespan)
     app.add_middleware(SessionMiddleware, secret_key=cfg.secret_key, max_age=60 * 60 * 24 * 90,

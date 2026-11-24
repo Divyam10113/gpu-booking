@@ -100,8 +100,7 @@ function toLocalInput(ts) {
 }
 function fromLocalInput(v) {
   if (!v) return null;
-  const slot = state.cfg.slot_minutes * 60;
-  return Math.round(secs(new Date(v)) / slot) * slot;
+  return Math.round(secs(new Date(v)) / 60) * 60; // any whole minute
 }
 const slotFloor = (ts) => ts - (ts % (state.cfg.slot_minutes * 60));
 /** Whether this person's bookings go straight through, without waiting for an admin. */
@@ -558,8 +557,7 @@ function openBookingDialog({ gpus, start, end, booking = null }) {
       el("input", { type: "checkbox", value: g, id: `f-gpu-${g}`, checked: gpus.includes(g), onchange: updateDuration }),
       el("span", {}, `GPU ${g}`))));
 
-  const step = cfg.slot_minutes * 60;
-  for (const id of ["#f-start", "#f-end"]) $(id).step = step;
+  for (const id of ["#f-start", "#f-end"]) $(id).step = 60;
   $("#f-start").value = toLocalInput(start);
   $("#f-end").value = toLocalInput(end);
   $("#f-note").value = booking ? booking.note : "";
@@ -743,7 +741,7 @@ function extendControl(b, inDialog) {
   const span = el("span", { class: "item-actions" });
   const open = el("button", { class: "btn ghost small", type: "button" }, bookInstantly() ? "Extend" : "Ask for more time");
   open.addEventListener("click", () => {
-    const input = el("input", { type: "datetime-local", step: state.cfg.slot_minutes * 60, value: toLocalInput(b.end + 3600), "aria-label": "New end time" });
+    const input = el("input", { type: "datetime-local", step: 60, value: toLocalInput(b.end + 3600), "aria-label": "New end time" });
     const send = el("button", { class: "btn primary small", type: "button" }, "Send");
     send.addEventListener("click", () => act(
       () => api("POST", `/api/bookings/${b.id}/extend`, { end: fromLocalInput(input.value) }),

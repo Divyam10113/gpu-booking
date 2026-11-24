@@ -151,7 +151,7 @@ def test_length_limits(conn, cfg):
 def test_validation(conn, cfg):
     for kwargs in [
         dict(start=T - 2 * H, end=T),              # past
-        dict(start=T + H + 60, end=T + 2 * H),     # off-grid
+        dict(start=T + H + 30, end=T + 2 * H),     # not a whole minute
         dict(start=T + 2 * H, end=T + H),          # backwards
         dict(gpus=[2]),                            # no such GPU
         dict(gpus=[]),
@@ -159,7 +159,9 @@ def test_validation(conn, cfg):
         with pytest.raises(db.BookingError):
             req(conn, cfg, **kwargs)
     # The slot that is already running can still be booked.
-    assert req(conn, cfg, start=T, end=T + H, now=T + 600).status == "pending"
+    assert req(conn, cfg, start=T, end=T + H, now=T + 300).status == "pending"
+    # Any minute works, e.g. 7:43 to 9:07.
+    assert req(conn, cfg, gpus=[1], start=T + H + 13 * 60, end=T + 2 * H + 37 * 60).status == "pending"
 
 
 # ---------------------------------------------------------------- cancel / extend

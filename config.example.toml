@@ -5,7 +5,7 @@
 num_gpus = 2
 
 # Booking rules.
-slot_minutes = 30            # start/end snap to this grid
+slot_minutes = 10            # dragging on the timeline snaps to this many minutes; typed times can be any minute
 max_hours_single = 24        # longest request for one GPU
 max_hours_all = 12           # longest request for all GPUs at once
 require_approval = false     # false: bookings that don't clash go through at once; true: an admin approves each one

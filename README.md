@@ -15,7 +15,7 @@ A small web app for sharing the lab's GPU server (2× RTX PRO 6000 Blackwell).
 
 | | |
 |---|---|
-| Slot size | 30 min |
+| Start and end times | Any minute, e.g. 7:43. Dragging on the timeline snaps to 10 min |
 | Longest booking, one GPU | 24 h |
 | Longest booking, both GPUs | 12 h |
 | Unbooked GPU | Free for anyone, shown as "in use without a booking" |

@@ -20,7 +20,7 @@ class User:
 @dataclass
 class Config:
     num_gpus: int = 2
-    slot_minutes: int = 30
+    slot_minutes: int = 10  # timeline grid that dragging snaps to; typed times can be any minute
     max_hours_single: float = 24
     max_hours_all: float = 12
     require_approval: bool = False  # False: bookings that clash with nobody are approved at once

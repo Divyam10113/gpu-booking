@@ -380,10 +380,10 @@ def _validate(cfg: Config, gpus: list[int], start: int, end: int, now: int, as_a
         raise BookingError(f"Pick GPUs between 0 and {cfg.num_gpus - 1}")
     if end <= start:
         raise BookingError("End must be after start")
+    if start % 60 or end % 60:
+        raise BookingError("Times must be whole minutes")
+    # Starting anywhere in the current timeline slot (e.g. 7:40 at 7:44) still counts as "now".
     slot = cfg.slot_minutes * 60
-    if start % slot or end % slot:
-        raise BookingError(f"Times must be on a {cfg.slot_minutes}-minute boundary")
-    # The slot that is currently running counts as "now".
     if start < now - now % slot:
         raise BookingError("Can't book time in the past")
     if not as_admin:

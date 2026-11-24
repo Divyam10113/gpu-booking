@@ -26,7 +26,11 @@ const state = {
   usage: { people: [], unbooked: [] },
   waiting: [],
   passwordRequests: [],
+  dayIndex: (new Date().getDay() + 6) % 7, // phones show one day of the week at a time
 };
+
+/** Phones get the one-day schedule (time running down); wider screens the week (time across). */
+const PHONE = matchMedia("(max-width: 719px)");
 
 // Through ngrok every request counts against a monthly cap, so refresh less often there.
 const VIA_TUNNEL = /\.ngrok(-free)?\.(app|dev|io)$/.test(location.hostname);
@@ -252,6 +256,12 @@ $("#password-form").addEventListener("submit", async (e) => {
   }
 });
 
+// The account menu closes after a choice or a click elsewhere.
+document.addEventListener("click", (e) => {
+  const menu = $("#user-menu");
+  if (menu.open && (!menu.contains(e.target) || e.target.closest(".menu-pop button"))) menu.open = false;
+});
+
 $("#logout").addEventListener("click", async () => {
   await api("POST", "/api/logout");
   state.me = { user: null, admin: false };
@@ -315,9 +325,9 @@ function renderNow() {
           el("div", { class: "holder-sub" },
             `Booked until ${fmtClock(cur.end)} (${fmtDur(cur.end - s.now)} left)${cur.gpus.length > 1 ? ", both GPUs" : ""}`))
       : el("div", { class: "holder" },
-          el("div", { class: "holder-name" }, "Free"),
+          el("div", { class: "holder-name" }, g.unbooked_use ? "Nobody booked" : "Free"),
           el("div", { class: g.unbooked_use ? "holder-sub" : "holder-sub free" },
-            g.unbooked_use ? "Not booked, but someone is using it" : "Not booked right now"));
+            g.unbooked_use ? "Someone is running jobs without a booking" : "Book it and it's yours"));
 
     const alert = g.violation && el("div", { class: "alert-line" }, "Someone without the booking is running a job here");
 
@@ -360,12 +370,25 @@ function renderNow() {
       ? `Next: ${g.next.user === state.me.user ? "you" : g.next.user}, ${fmtRange(g.next.start, g.next.end)}`
       : "Nothing else booked");
 
-    return el("article", { class: `gpu-card ${g.violation ? "alert" : ""}` },
+    const card = gpuState(g);
+    return el("article", { class: "gpu-card", "data-state": card.state },
       el("div", { class: "gpu-card-head" },
+        el("span", { class: "led", "aria-hidden": "true" }),
         el("span", { class: "gpu-id" }, `GPU ${g.index}`),
-        el("span", { class: "gpu-model" }, g.name || "")),
+        el("span", { class: "gpu-state" }, card.word),
+        el("span", { class: "gpu-model", title: g.name || "" }, g.name || "")),
       holder, alert, idle, env, meters, procs, next);
   }));
+  const bars = [...$("#brand-mark").children];
+  s.gpus.forEach((g, i) => { if (bars[i]) bars[i].dataset.state = gpuState(g).state; });
+}
+
+/** The status light for a GPU: free (green), in use or booked (amber), or the wrong person on it (red). */
+function gpuState(g) {
+  if (g.violation) return { state: "fault", word: "Someone else is on it" };
+  if (g.current) return { state: "busy", word: "Booked" };
+  if (g.procs.length) return { state: "busy", word: "In use, not booked" };
+  return { state: "free", word: "Free" };
 }
 
 async function copy(text, btn) {
@@ -381,6 +404,100 @@ async function copy(text, btn) {
 // ------------------------------------------------------------------ calendar (timeline: one row per GPU per day, hours across)
 
 function renderCalendar() {
+  const phone = PHONE.matches;
+  $("#calendar").classList.toggle("day-mode", phone);
+  $("#day-strip").hidden = !phone;
+  $("#book-tip").textContent = phone ? "Tap a GPU column to book from that time." : "Drag along a GPU row to book time.";
+  $("#legend-pending").hidden = !state.cfg.require_approval && !state.bookings.some((b) => b.status === "pending");
+  $("#prev-week").setAttribute("aria-label", "Previous week");
+  $("#next-week").setAttribute("aria-label", "Next week");
+  if (phone) renderDay(); else renderWeek();
+}
+
+/** Lay out a lane's bookings; overlapping requests share the space side by side (rows). */
+function laneSegments(g, ds, de) {
+  const segs = state.bookings
+    .filter((b) => b.gpus.includes(g) && b.start < de && b.end > ds)
+    .map((b) => ({ b, s: Math.max(b.start, ds), e: Math.min(b.end, de) }))
+    .sort((x, y) => x.s - y.s || (x.b.status === "approved" ? -1 : 1));
+  const rowEnds = [];
+  for (const seg of segs) {
+    let r = rowEnds.findIndex((endT) => endT <= seg.s);
+    if (r === -1) { r = rowEnds.length; rowEnds.push(0); }
+    rowEnds[r] = seg.e;
+    seg.row = r;
+  }
+  return { segs, rows: Math.max(1, rowEnds.length) };
+}
+
+const HOUR_H = 52; // day view: pixels per hour (matches --hour-h)
+
+function renderDay() {
+  const { cfg } = state;
+  const days = [...Array(7)].map((_, i) => addDays(state.weekStart, i));
+  const todayStr = new Date().toDateString();
+  const d = days[state.dayIndex];
+  $("#week-label").textContent = d.toDateString() === todayStr ? "Today"
+    : d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+
+  $("#day-strip").replaceChildren(...days.map((day, i) => {
+    const ds = secs(day), de = secs(addDays(day, 1));
+    const has = state.bookings.some((b) => b.start < de && b.end > ds && b.status !== "rejected");
+    return el("button", {
+      type: "button", class: day.toDateString() === todayStr ? "today" : "", "aria-pressed": i === state.dayIndex ? "true" : "false",
+      "aria-label": day.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
+      onclick: () => { state.dayIndex = i; renderCalendar(); scrollDayTo(i === (new Date().getDay() + 6) % 7 && isThisWeek() ? new Date().getHours() - 1 : 8); },
+    },
+      el("span", { class: "ds-dow" }, day.toLocaleDateString(undefined, { weekday: "short" })),
+      el("span", { class: "ds-num" }, day.getDate()),
+      el("span", { class: `ds-has ${has ? "" : "none"}` }));
+  }));
+
+  const ds = secs(d), de = secs(addDays(d, 1)), now = nowSecs();
+  const pxPerMin = HOUR_H / 60;
+  const prevScroll = $("#calendar .dv")?.scrollTop;
+  const dv = el("div", { class: "dv", style: `--lanes:${cfg.num_gpus};--hour-h:${HOUR_H}px` },
+    el("div", { class: "dv-head", "aria-hidden": "true" }),
+    [...Array(cfg.num_gpus)].map((_, g) => el("div", { class: "dv-head" }, `GPU ${g}`)),
+    el("div", { class: "dv-times", "aria-hidden": "true" },
+      [...Array(23)].map((_, h) => el("span", { style: `top:${(h + 1) * HOUR_H}px` }, `${pad(h + 1)}:00`))));
+  for (let g = 0; g < cfg.num_gpus; g++) {
+    const col = el("div", { class: "dv-col", "data-day": ds, "data-gpu": g, role: "group", "aria-label": `GPU ${g}` });
+    if (now > ds) col.append(el("div", { class: "past", style: `height:${((Math.min(now, de) - ds) / 60) * pxPerMin}px` }));
+    if (now >= ds && now < de) col.append(el("div", { class: "now-line", style: `top:${((now - ds) / 60) * pxPerMin}px` }));
+    const { segs, rows } = laneSegments(g, ds, de);
+    for (const { b, s, e, row } of segs) {
+      const mine = b.user === state.me.user;
+      const h = Math.max(((e - s) / 60) * pxPerMin - 2, 22);
+      col.append(el("button", {
+        type: "button", class: `block ${b.status} ${mine ? "mine" : ""} ${personClass(b.user)}`,
+        style: `top:${((s - ds) / 60) * pxPerMin + 1}px;height:${h}px;left:calc(${(100 * row) / rows}% + 3px);width:calc(${100 / rows}% - 6px)`,
+        onclick: (ev) => { ev.stopPropagation(); showDetail(b); },
+      },
+        el("span", { class: "b-user" }, mine ? "You" : b.user),
+        h >= 40 && el("span", { class: "b-time" }, `${fmtClock(b.start)}–${fmtClock(b.end)}`),
+        h >= 58 && b.status === "pending" && el("span", { class: "b-time" }, "Waiting for approval")));
+    }
+    // Tap an empty spot: book 2 hours from that time (snapped to the grid).
+    col.addEventListener("click", (e) => {
+      if (e.target !== col) return;
+      const slot = cfg.slot_minutes * 60;
+      const at = ds + Math.floor(((e.offsetY / pxPerMin) * 60) / slot) * slot;
+      openBookingDialog({ gpus: [g], start: at, end: at + 2 * 3600 });
+    });
+    dv.append(col);
+  }
+  $("#calendar").replaceChildren(dv);
+  if (prevScroll != null) dv.scrollTop = prevScroll;
+}
+
+const isThisWeek = () => secs(state.weekStart) === secs(startOfWeek(new Date()));
+function scrollDayTo(hour) {
+  const dv = $("#calendar .dv");
+  if (dv) dv.scrollTop = Math.max(0, hour) * HOUR_H;
+}
+
+function renderWeek() {
   const { cfg } = state;
   const days = [...Array(7)].map((_, i) => addDays(state.weekStart, i));
   const todayStr = new Date().toDateString();
@@ -411,18 +528,7 @@ function renderCalendar() {
       if (now >= ds && now < de) lane.append(el("div", { class: "now-line", style: `left:${((now - ds) / 60) * PX_PER_MIN}px` }));
 
       // Blocks in this lane; overlapping pending requests share the row height.
-      const segs = state.bookings
-        .filter((b) => b.gpus.includes(g) && b.start < de && b.end > ds)
-        .map((b) => ({ b, s: Math.max(b.start, ds), e: Math.min(b.end, de) }))
-        .sort((x, y) => x.s - y.s || (x.b.status === "approved" ? -1 : 1));
-      const rowEnds = [];
-      for (const seg of segs) {
-        let r = rowEnds.findIndex((endT) => endT <= seg.s);
-        if (r === -1) { r = rowEnds.length; rowEnds.push(0); }
-        rowEnds[r] = seg.e;
-        seg.row = r;
-      }
-      const rows = Math.max(1, rowEnds.length);
+      const { segs, rows } = laneSegments(g, ds, de);
       for (const { b, s, e, row } of segs) lane.append(blockEl(b, s, e, ds, row, rows));
       attachDrag(lane);
       day.append(lane);
@@ -446,7 +552,7 @@ function blockEl(b, s, e, ds, row, rows) {
     onclick: (ev) => { ev.stopPropagation(); showDetail(b); },
   },
     el("span", { class: "b-user" }, mine ? "You" : b.user),
-    w > 90 && rows === 1 && el("span", { class: "b-time" }, `${fmtClock(b.start)}–${fmtClock(b.end)}${b.status === "pending" ? " · waiting" : ""}`));
+    w > 90 && rows === 1 && el("span", { class: "b-time" }, `${fmtClock(b.start)}–${fmtClock(b.end)}${b.status === "pending" ? ", waiting" : ""}`));
 }
 
 function attachDrag(lane) {
@@ -498,13 +604,19 @@ function attachDrag(lane) {
 }
 
 function scrollCalendarTo(hour) {
-  $("#calendar").scrollLeft = Math.max(0, (hour - 2) * HOUR_PX);
+  if (PHONE.matches) scrollDayTo(hour - 1);
+  else $("#calendar").scrollLeft = Math.max(0, (hour - 2) * HOUR_PX);
 }
-const scrollCalendarToNow = () => scrollCalendarTo(Math.min(new Date().getHours(), 16));
+const scrollCalendarToNow = () => scrollCalendarTo(PHONE.matches ? new Date().getHours() : Math.min(new Date().getHours(), 16));
 
 $("#prev-week").addEventListener("click", () => { state.weekStart = addDays(state.weekStart, -7); refreshAll(); });
 $("#next-week").addEventListener("click", () => { state.weekStart = addDays(state.weekStart, 7); refreshAll(); });
-$("#this-week").addEventListener("click", () => { state.weekStart = startOfWeek(new Date()); refreshAll().then(scrollCalendarToNow); });
+$("#this-week").addEventListener("click", () => {
+  state.weekStart = startOfWeek(new Date());
+  state.dayIndex = (new Date().getDay() + 6) % 7;
+  refreshAll().then(scrollCalendarToNow);
+});
+PHONE.addEventListener("change", () => { if (state.status) { renderCalendar(); scrollCalendarToNow(); } });
 $("#new-request").addEventListener("click", () => {
   const s = slotFloor(nowSecs()) + state.cfg.slot_minutes * 60;
   openBookingDialog({ gpus: [0], start: s, end: s + 2 * 3600 });
@@ -513,6 +625,7 @@ $("#admin-pill").addEventListener("click", () => $("#admin-panel").scrollIntoVie
 
 function showWeekOf(ts) {
   state.weekStart = startOfWeek(new Date(ts * 1000));
+  state.dayIndex = (new Date(ts * 1000).getDay() + 6) % 7;
   refreshAll().then(() => {
     scrollCalendarTo(new Date(ts * 1000).getHours());
     $("#calendar").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -586,7 +699,7 @@ function updateDuration() {
   if (s && e && e > s) parts.push(fmtDur(e - s));
   if (!state.me.admin) parts.push(`limit ${limit} h for ${all ? "all GPUs" : "one GPU"}`);
   if (!bookInstantly() && !dialogMode?.booking) parts.push("an admin will approve it");
-  $("#f-duration").textContent = parts.join(" · ");
+  $("#f-duration").textContent = parts.join(", ");
 }
 $("#f-start").addEventListener("change", () => {
   // Keep the same length when the start moves.
@@ -633,12 +746,12 @@ function showDetail(b) {
   const actions = bookingActions(b, { inDialog: true });
   box.replaceChildren(
     el("div", { class: "item-head" },
-      el("h2", {}, `${b.user === state.me.user ? "Your booking" : b.user} · #${b.id}`),
+      el("h2", {}, `${b.user === state.me.user ? "Your booking" : `${b.user}'s booking`}`),
       el("span", { class: `chip ${b.status}` }, statusLabel(b.status))),
     el("dl", { class: "kv" },
-      el("dt", {}, "GPUs"), el("dd", { class: "mono" }, fmtGpus(b.gpus)),
-      el("dt", {}, "When"), el("dd", { class: "mono" }, fmtRange(b.start, b.end)),
-      el("dt", {}, "Length"), el("dd", { class: "mono" }, fmtDur(b.end - b.start)),
+      el("dt", {}, "GPUs"), el("dd", {}, fmtGpus(b.gpus)),
+      el("dt", {}, "When"), el("dd", {}, fmtRange(b.start, b.end)),
+      el("dt", {}, "Length"), el("dd", {}, fmtDur(b.end - b.start)),
       b.status === "approved" && b.start < nowSecs() && [el("dt", {}, "Used"), el("dd", {}, usedText(b))],
       b.note && [el("dt", {}, "Note"), el("dd", {}, b.note)],
       b.extends_id && [el("dt", {}, "Extends"), el("dd", {}, `#${b.extends_id}`)],
@@ -677,7 +790,7 @@ function historyRow(h, { withBooking = false } = {}) {
         withBooking && el("button", { class: "link", type: "button", onclick: () => openBooking(h.booking_id) }, `#${h.booking_id}`),
         withBooking && h.user !== h.actor && ` (${h.user}'s)`),
       h.detail && el("div", { class: "sub" }, h.detail)),
-    el("span", { class: "sub mono" }, fmtWhen(h.at)));
+    el("span", { class: "sub when" }, fmtWhen(h.at)));
 }
 
 /** Open a booking's details by id, from the bookings already loaded. */
@@ -783,9 +896,9 @@ async function approve(b) {
 function bookingItem(b, extra = [], { showUser = false } = {}) {
   return el("article", { class: "item" },
     el("div", { class: "item-head" },
-      el("span", { class: `item-title ${personClass(b.user)}` }, showUser && [el("span", { class: "dot" }), ` ${b.user} · `], fmtGpus(b.gpus)),
+      el("span", { class: `item-title ${personClass(b.user)}` }, showUser && [el("span", { class: "dot" }), `${b.user}, `], fmtGpus(b.gpus)),
       el("span", { class: `chip ${b.status}` }, statusLabel(b.status))),
-    el("div", { class: "item-when" }, fmtRange(b.start, b.end), el("span", { class: "dur" }, ` · ${fmtDur(b.end - b.start)} `),
+    el("div", { class: "item-when" }, fmtRange(b.start, b.end), el("span", { class: "dur" }, ` (${fmtDur(b.end - b.start)}) `),
       el("button", { class: "link", type: "button", onclick: () => showWeekOf(b.start) }, "Show")),
     b.note && el("div", { class: "item-note" }, b.note),
     b.admin_note && el("div", { class: "item-admin-note" }, b.decided_by && el("b", {}, `${b.decided_by}: `), b.admin_note),
@@ -839,7 +952,7 @@ function renderAdmin() {
     el("div", { class: `meter two ${personClass(h.user)}`, title: `${h.booked}h booked, ${h.used}h used` },
       el("i", { class: "booked", style: `width:${(100 * h.booked) / top}%` }),
       el("i", { class: "used", style: `width:${(100 * Math.min(h.used, h.booked)) / top}%` })),
-    el("span", { class: "mono" }, `${h.booked}h · used ${h.used}h`))));
+    el("span", { class: "mono" }, `${h.booked}h booked, ${h.used}h used`))));
   $("#unbooked-list").replaceChildren(...(unbooked.length
     ? unbooked.map((u) => el("div", { class: "row" },
         el("div", {}, el("b", {}, u.account),
@@ -857,7 +970,7 @@ function renderAdmin() {
     const approve = el("button", { class: "btn primary small", type: "button" }, "Approve");
     approve.addEventListener("click", () => act(() => userApi(u, "approve"), `${u.name} can log in now`).catch(() => {}));
     return el("div", { class: "row" },
-      el("div", {}, el("b", {}, u.name), el("div", { class: "sub" }, `Server account ${u.unix} · signed up ${fmtWhen(u.at)}`)),
+      el("div", {}, el("b", {}, u.name), el("div", { class: "sub" }, `Server account ${u.unix}, signed up ${fmtWhen(u.at)}`)),
       el("span", { class: "row-actions" }, approve,
         confirmButton("Delete", () => act(() => userApi(u, "delete"), `${u.name}'s sign-up deleted`))));
   }));
@@ -884,7 +997,7 @@ function renderAdmin() {
     return el("div", { class: "row person" },
       el("div", {},
         el("div", { class: personClass(u.name) }, el("span", { class: "dot" }), " ", el("b", {}, u.name), u.admin && " (admin)"),
-        el("div", { class: "sub" }, `${u.unix} · ${u.has_password ? "password set" : "hasn't logged in yet"}`)),
+        el("div", { class: "sub" }, `Server account ${u.unix}${u.has_password ? "" : ", hasn't logged in yet"}`)),
       !me && el("span", { class: "row-actions" },
         adminBtn,
         confirmButton("Delete", () => act(() => userApi(u, "delete"), `${u.name} deleted`))));

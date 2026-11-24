@@ -7,7 +7,9 @@
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=JetBrains+Mono:wght@400&display=swap">
+<meta name="theme-color" content="#eceff3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c1117" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/static/style.css">
 <script>
   // Apply the saved theme before first paint so the page doesn't flash.
@@ -18,7 +20,7 @@
 
 <header class="topbar">
   <div class="brand">
-    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-mark" id="brand-mark" aria-hidden="true"><i></i><i></i></span>
     <h1>GPU Booking</h1>
   </div>
   <div class="topbar-right">
@@ -26,9 +28,13 @@
       <button class="admin-pill" id="admin-pill" hidden title="Pending requests">
         <span>Requests</span><b id="pending-count">0</b>
       </button>
-      <span class="who-name" id="who-name"></span>
-      <button class="btn small ghost" id="change-pw" type="button">Change password</button>
-      <button class="btn small" id="logout">Log out</button>
+      <details class="menu" id="user-menu">
+        <summary class="btn small" aria-label="Account"><span id="who-name"></span></summary>
+        <div class="menu-pop">
+          <button type="button" id="change-pw">Change password</button>
+          <button type="button" id="logout">Log out</button>
+        </div>
+      </details>
     </div>
     <button class="btn small icon-btn" id="theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">
       <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="currentColor"/></svg>
@@ -58,11 +64,11 @@
           <button class="btn primary small" id="new-request">New booking</button>
         </div>
       </div>
+      <div class="day-strip" id="day-strip" hidden></div>
       <div class="legend">
-        <span><i class="sw approved"></i>Approved</span>
-        <span><i class="sw pending"></i>Waiting for approval</span>
-        <span>Each person has their own color.</span>
-        <span>Drag along a GPU row to book time.</span>
+        <span id="legend-pending"><i class="sw pending"></i>Waiting for approval</span>
+        <span class="color-tip">Each person has their own color.</span>
+        <span id="book-tip">Drag along a GPU row to book time.</span>
       </div>
       <div class="calendar" id="calendar"></div>
     </section>
@@ -134,8 +140,8 @@
     <div class="actions">
       <button class="btn primary" type="submit">Continue</button>
     </div>
-    <p class="switch-line">Not in the list? <button class="link" type="button" id="to-signup">Sign up</button>
-      · <button class="link" type="button" id="to-forgot">Forgot password?</button></p>
+    <p class="switch-line">Not in the list? <button class="link" type="button" id="to-signup">Sign up</button><br>
+      Forgot it? <button class="link" type="button" id="to-forgot">Choose a new password</button></p>
   </form>
 
   <form class="dialog" id="forgot-form" hidden>
